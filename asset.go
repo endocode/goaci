@@ -22,6 +22,13 @@ func copyRegularFile(src, dest string) error {
 	if _, err := io.Copy(destFile, srcFile); err != nil {
 		return err
 	}
+	fi, err := srcFile.Stat()
+	if err != nil {
+		return err
+	}
+	if err := destFile.Chmod(fi.Mode().Perm()); err != nil {
+		return err
+	}
 	return nil
 }
 
