@@ -1,25 +1,28 @@
 package main
 
 import (
-	"exec"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+	"runtime"
 
+	"github.com/appc/spec/schema"
+	"github.com/appc/spec/schema/types"
 	"github.com/appc/goaci/proj2aci"
 )
 
 type CmakePaths struct {
-	src string
-	build string
+	src     string
+	build   string
 	install string
-	binDir string
+	binDir  string
 }
 
 type CmakeOptions struct {
-	binDir string
+	binDir          string
 	reuseInstallDir string
+	reuseSrcDir     string
 }
 
 type CmakeCustomization struct {
@@ -42,52 +45,76 @@ func (custom *CmakeCustomization) GetPlaceholderMapping() map[string]string {
 
 func (custom *CmakeCustomization) SetupParameters(parameters *flag.FlagSet) {
 	// --binary-dir
-	flag.StringVar(&opts.binDir, "binary-dir", "", "Look for binaries in this directory (relative to install path, eg passing /usr/local/mysql/bin would look for a binary in /tmp/XXX/install/usr/local/mysql/bin")
+	flag.StringVar(&custom.options.binDir, "binary-dir", "", "Look for binaries in this directory (relative to install path, eg passing /usr/local/mysql/bin would look for a binary in /tmp/XXX/install/usr/local/mysql/bin")
 
 	// --reuse-install-dir
-	flag.StringVar(&opts.reuseInstallDir, "reuse-install-dir", "", "Instead of downloading a project, building and installing use this path with already installed project")
+	flag.StringVar(&custom.options.reuseInstallDir, "reuse-install-dir", "", "Instead of downloading, building and installing a project, use this path with already installed project")
+
+	// --reuse-src-dir
+	flag.StringVar(&custom.options.reuseSrcDir, "reuse-src-dir", "", "Instead of downloading a project, use this path with already downloaded sources")
 }
 
 func (custom *CmakeCustomization) ValidateOptions(options *CommonOptions) error {
-	if custom.options.reuseInstallDir != "" {
-		fi, err := os.Stat(custom.options.reuseInstallDir)
-		if err != nil || !fi.IsDir() {
-			return fmt.Errorf("Error stating install dir to reuse")
-		}
+	if !dirExists(custom.options.reuseInstallDir) {
+		return fmt.Errorf("Invalid install dir to reuse")
+	}
+	if !dirExists(custom.options.reuseSrcDir) {
+		return fmt.Errorf("Invalid src dir to reuse")
 	}
 
 	return nil
 }
 
-func (custom *CmakeCustomization) SetupPaths(paths *CommonPaths) error {
-	custom.paths.src = filepath.Join(paths.tmpDir, "src")
-	custom.paths.build = filepath.Join(paths.tmpDir, "build")
-	if custom.options.reuseInstallDir != "" {
-		custom.paths.install = custom.options.reuseInstallDir
-	} else {
-		custom.paths.install = filepath.Join(paths.tmpDir, "install")
+func dirExists(path string) bool {
+	if path != "" {
+		fi, err := os.Stat(path)
+		if err != nil || !fi.IsDir() {
+			return false
+		}
 	}
+	return true
+}
+
+func (custom *CmakeCustomization) SetupPaths(paths *CommonPaths, project string) error {
+	setupReusableDir(&custom.paths.src, custom.options.reuseInstallDir, filepath.Join(paths.tmpDir, "src"))
+	custom.paths.build = filepath.Join(paths.tmpDir, "build")
+	setupReusableDir(&custom.paths.install, custom.options.reuseInstallDir, filepath.Join(paths.tmpDir, "install"))
 	return nil
+}
+
+func setupReusableDir(path *string, reusePath, stockPath string) {
+	if path == nil {
+		panic("path in setupReusableDir cannot be nil")
+	}
+	if reusePath != "" {
+		*path = reusePath
+	} else {
+		*path = stockPath
+	}
 }
 
 func (custom *CmakeCustomization) GetDirectoriesToMake() []string {
 	dirs := []string{
-		custom.paths.src,
 		custom.paths.build,
 	}
 	if custom.options.reuseInstallDir == "" {
 		dirs = append(dirs, custom.paths.install)
 	}
+	if custom.options.reuseSrcDir == "" {
+		dirs = append(dirs, custom.paths.src)
+	}
 	return dirs
 }
 
 func (custom *CmakeCustomization) PrepareProject(options *CommonOptions, paths *CommonPaths) error {
-	if opts.reuseInstallDir != "" {
+	if custom.options.reuseInstallDir != "" {
 		return nil
 	}
 
-	if err := custom.runShallowGitClone(options); err != nil {
-		return err
+	if custom.options.reuseSrcDir == "" {
+		if err := custom.runShallowGitClone(options); err != nil {
+			return err
+		}
 	}
 
 	if err := custom.runCmake(); err != nil {
@@ -118,7 +145,7 @@ func (custom *CmakeCustomization) runShallowGitClone(options *CommonOptions) err
 		fmt.Sprintf("https://%s", options.project),
 		custom.paths.src,
 	}
-	return runCmd(args, nil, "")
+	return proj2aci.RunCmd(args, nil, "")
 }
 
 func (custom *CmakeCustomization) runCmake() error {
@@ -126,7 +153,7 @@ func (custom *CmakeCustomization) runCmake() error {
 		"cmake",
 		custom.paths.src,
 	}
-	return runCmd(args, nil, custom.paths.build)
+	return proj2aci.RunCmd(args, nil, custom.paths.build)
 }
 
 func (custom *CmakeCustomization) runMake() error {
@@ -134,7 +161,7 @@ func (custom *CmakeCustomization) runMake() error {
 		"make",
 		fmt.Sprintf("-j%d", runtime.NumCPU()),
 	}
-	return runCmd(args, nil, custom.paths.build)
+	return proj2aci.RunCmd(args, nil, custom.paths.build)
 }
 
 func (custom *CmakeCustomization) runMakeInstall() error {
@@ -143,7 +170,7 @@ func (custom *CmakeCustomization) runMakeInstall() error {
 		"install",
 	}
 	env := append(os.Environ(), "DESTDIR="+custom.paths.install)
-	return runCmd(args, env, custom.paths.build)
+	return proj2aci.RunCmd(args, env, custom.paths.build)
 }
 
 func (custom *CmakeCustomization) findFullBinPath(options *CommonOptions) error {
@@ -155,7 +182,7 @@ func (custom *CmakeCustomization) findFullBinPath(options *CommonOptions) error 
 	if err != nil {
 		return err
 	}
-	custom.fullBinPath := filepath.Join(binDir, binary)
+	custom.fullBinPath = filepath.Join(binDir, binary)
 	return nil
 }
 
@@ -185,79 +212,32 @@ func (custom *CmakeCustomization) getBinDir() (string, error) {
 	return "", fmt.Errorf("Could not find any bin directory")
 }
 
-func (custom *CmakeCustomization) GetAssets() ([]string, error) {
-	assets, err := custom.createBinaryAssets()
-	if err != nil {
-		return err
-	}
-	opts.assets = append(opts.assets, assets...)
-	return nil
+func (custom *CmakeCustomization) GetAssets(aciBinDir string) ([]string, error) {
+	return custom.createBinaryAsset(aciBinDir)
 }
 
-func (custom *CmakeCustomization) createBinaryAssets() ([]string, error) {
-	rootBinary := filepath.Join("/", filepath.Base(custom.fullBinPath))
-	assets := []string{
-		fmt.Sprintf("%s%s%s", rootBinary, ListSeparator(), fullBinPath),
-	}
-	buf := new(bytes.Buffer)
-	args := []string{
-		"ldd",
-		binPath,
-	}
-	if err := runCmdFull(args, nil, "", buf, nil); err != nil {
-		if _, ok := err.(CmdFailedError); !ok {
-			return nil, err
-		}
-	} else {
-		re := regexp.MustCompile(`(?m)^\t(?:\S+\s+=>\s+)?(\S+)\s+\([0-9a-fA-Fx]+\)$`)
-		for _, matches := range re.FindAllStringSubmatch(string(buf.Bytes()), -1) {
-			lib := matches[1]
-			if lib == "" {
-				continue
-			}
-			symlinkedAssets, err := getSymlinkedAssets(lib)
-			if err != nil {
-				return nil, err
-			}
-			assets = append(assets, symlinkedAssets...)
-		}
-	}
-
-	return assets, nil
+func (custom *CmakeCustomization) createBinaryAsset(aciBinDir string) ([]string, error) {
+	rootBinary := filepath.Join(aciBinDir, filepath.Base(custom.fullBinPath))
+	return []string{proj2aci.GetAssetString(rootBinary, custom.fullBinPath)}, nil
 }
 
-func getSymlinkedAssets(path string) ([]string, error) {
-	assets := []string{}
-	maxLevels := 100
-	levels := maxLevels
-	for {
-		if levels < 1 {
-			return nil, fmt.Errorf("Too many levels of symlinks (>$d)", maxLevels)
+func (custom *CmakeCustomization) GetImageACName(options *CommonOptions) (*types.ACName, error) {
+	imageACName := options.project
+	if filepath.Base(imageACName) == "..." {
+		imageACName = filepath.Dir(imageACName)
+		if options.useBinary != "" {
+			imageACName += "-" + options.useBinary
 		}
-		asset := fmt.Sprintf("%s%s%s", path, ListSeparator(), path)
-		assets = append(assets, asset)
-		fi, err := os.Lstat(path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				break
-			}
-			return nil, err
-		}
-		if fi.Mode()&os.ModeSymlink != os.ModeSymlink {
-			break
-		}
-		symTarget, err := os.Readlink(path)
-		if err != nil {
-			return nil, err
-		}
-		if filepath.IsAbs(symTarget) {
-			path = symTarget
-		} else {
-			path = filepath.Join(filepath.Dir(path), symTarget)
-		}
-		levels--
 	}
-	return assets, nil
+	return types.NewACName(imageACName)
+}
+
+func (custom *CmakeCustomization) GetBinaryName() string {
+	return filepath.Base(custom.fullBinPath)
+}
+
+func (custom *CmakeCustomization) GetRepoPath() (string, error) {
+	return custom.paths.src, nil
 }
 
 func (custom *CmakeCustomization) GetImageFileName(options *CommonOptions) (string, error) {
@@ -268,16 +248,5 @@ func (custom *CmakeCustomization) GetImageFileName(options *CommonOptions) (stri
 			base += "-" + options.useBinary
 		}
 	}
-	return base + schema.ACIExtension
-}
-
-func (custom *CmakeCustomization) GetImageACName(options *CommonOptions) (types.ACName, error) {
-	imageACName := options.project
-	if filepath.Base(imageACName) == "..." {
-		imageACName = filepath.Dir(imageACName)
-		if options.useBinary != "" {
-			imageACName += "-" + options.useBinary
-		}
-	}
-	return imageACName
+	return base + schema.ACIExtension, nil
 }

@@ -1,20 +1,15 @@
 package main
 
 var (
-	commandGo = &CommonCommand{
-		name: "go",
-	}
-	commandCmake = &CommonCommand{
-		name: "cmake",
-	}
-	commandAutotools = &CommonCommand{
-		name: "autotools",
-	}
-	commandsHash map[string]*Command
+	commandsHash map[string]Command = make(map[string]Command)
+)
 
 func init() {
-	commands := []*Command{commandGo, commandCmake, commandAutotools}
+	commands := []Command{
+		NewCommonCommand(&GoCustomization{}),
+		NewCommonCommand(&CmakeCustomization{}),
+	}
 	for _, c := range commands {
-		commandsHash[c.Name] = c
+		commandsHash[c.Name()] = c
 	}
 }

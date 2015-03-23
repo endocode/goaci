@@ -1,8 +1,21 @@
 package main
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"flag"
+	"fmt"
+	"io/ioutil"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sort"
+
+	"github.com/appc/spec/aci"
+	"github.com/appc/spec/schema"
+	"github.com/appc/spec/schema/types"
+	"github.com/appc/goaci/proj2aci"
 )
 
 type StringVector []string
@@ -35,24 +48,28 @@ type Customizations interface {
 	GetPlaceholderMapping() map[string]string
 	SetupParameters(parameters *flag.FlagSet)
 	ValidateOptions(options *CommonOptions) error
-	SetupPaths(paths *CommonPaths) error
+	SetupPaths(paths *CommonPaths, project string) error
 	GetDirectoriesToMake() []string
 	PrepareProject(options *CommonOptions, paths *CommonPaths) error
-	GetAssets() ([]string, error)
+	GetAssets(aciBinDir string) ([]string, error)
+	GetImageACName(options *CommonOptions) (*types.ACName, error)
+	GetBinaryName() string
+	GetRepoPath() (string, error)
 	GetImageFileName(options *CommonOptions) (string, error)
-	GetImageACName(options *CommonOptions) (types.ACName, error)
 }
 
 type CommonCommand struct {
-	options  CommonOptions
-	paths    CommonPaths
-	manifest *schema.ImageManifest
-	custom   *Customizations
+	options   CommonOptions
+	paths     CommonPaths
+	manifest  *schema.ImageManifest
+	aciBinDir string
+	custom    Customizations
 }
 
-func NewCommonCommand(custom *Customizations) *CommonCommand {
+func NewCommonCommand(custom Customizations) Command {
 	return &CommonCommand{
 		custom: custom,
+		aciBinDir: "/",
 	}
 }
 
@@ -61,16 +78,16 @@ func (cmd *CommonCommand) Name() string {
 }
 
 func (cmd *CommonCommand) Run(args []string) error {
-	if err := cmd.setupOptions(); err != nil {
+	if err := cmd.setupOptions(args); err != nil {
 		return err
 	}
 
-	if err != cmd.setupPathsAndNames(); err != nil {
+	if err := cmd.setupPaths(); err != nil {
 		return err
 	}
 
 	if cmd.options.keepTmp {
-		Info(`Preserving temporary directory "`, cmd.paths.tmpDir, `"`)
+		proj2aci.Info(`Preserving temporary directory "`, cmd.paths.tmpDir, `"`)
 	} else {
 		defer os.RemoveAll(cmd.paths.tmpDir)
 	}
@@ -124,7 +141,7 @@ func (cmd *CommonCommand) setupParameters(parameters *flag.FlagSet) {
 		placeholders = append(placeholders, p)
 	}
 	sort.Strings(placeholders)
-	parameters.Var(&cmd.options.assets, "asset", "Additional assets, can be used multiple times; format: <path in ACI>"+ListSeparator()+"<local path>; available placeholders for use: " + strings.Join(placeholders, ", "))
+	parameters.Var(&cmd.options.assets, "asset", "Additional assets, can be used multiple times; format: "+proj2aci.GetAssetString("<path in ACI rootfs>","<local path>")+"; available placeholders for use: " + strings.Join(placeholders, ", "))
 
 	// --keep-tmp
 	parameters.BoolVar(&cmd.options.keepTmp, "keep-tmp", false, "Do not delete temporary directory used for creating ACI")
@@ -138,18 +155,19 @@ func (cmd *CommonCommand) validateOptions(parameters *flag.FlagSet) error {
 		return fmt.Errorf("Expected exactly one project to build, got %d", len(args))
 	}
 	cmd.options.project = args[0]
-	return cmd.custom.ValidateOptions()
+	return cmd.custom.ValidateOptions(&cmd.options)
 }
 
 func (cmd *CommonCommand) setupPaths() error {
 	tmpName := fmt.Sprintf("proj2aci-%s", cmd.custom.Name())
-	cmd.paths.tmpDir, err := ioutil.TempDir("", tmpName)
+	tmpDir, err := ioutil.TempDir("", tmpName)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to set up temporary directory: %v", err)
+		return fmt.Errorf("Failed to set up temporary directory: %v", err)
 	}
-	cmd.paths.aciDir = filepath.Join(cmd.options.tmpDir, "aci")
-	cmd.paths.rootFS = filepath.Join(cmd.options.aciDir, "rootfs")
-	return cmd.custom.SetupPaths(&cmd.paths, &cmd.names)
+	cmd.paths.tmpDir = tmpDir
+	cmd.paths.aciDir = filepath.Join(cmd.paths.tmpDir, "aci")
+	cmd.paths.rootFS = filepath.Join(cmd.paths.aciDir, "rootfs")
+	return cmd.custom.SetupPaths(&cmd.paths, cmd.options.project)
 }
 
 func (cmd *CommonCommand) makeDirectories() error {
@@ -157,7 +175,7 @@ func (cmd *CommonCommand) makeDirectories() error {
 		cmd.paths.aciDir,
 		cmd.paths.rootFS,
 	}
-	toMake = append(toCreate, cmd.custom.GetDirectoriesToMake())
+	toMake = append(toMake, cmd.custom.GetDirectoriesToMake()...)
 
 	for _, dir := range toMake {
 		if err := os.Mkdir(dir, 0755); err != nil {
@@ -173,19 +191,23 @@ func (cmd *CommonCommand) prepareProject() error {
 
 func (cmd *CommonCommand) copyAssets() error {
 	mapping := cmd.custom.GetPlaceholderMapping()
-	customAssets, err := cmd.custom.GetAssets()
+	customAssets, err := cmd.custom.GetAssets(cmd.aciBinDir)
 	if err != nil {
 		return err
 	}
-	assets := append(cmd.options.assets, customAssets)
-	if err := PrepareAssets(assets, cmd.paths.rootFS, mapping); err != nil {
+	assets := append(cmd.options.assets, customAssets...)
+	if err := proj2aci.PrepareAssets(assets, cmd.paths.rootFS, mapping); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (cmd *CommonCommand) prepareManifest() error {
-	name, err := cmd.custom.GetImageACName(cmd.options)
+	name, err := cmd.custom.GetImageACName(&cmd.options)
+	if err != nil {
+		return err
+	}
+	labels, err := cmd.getLabels()
 	if err != nil {
 		return err
 	}
@@ -193,12 +215,12 @@ func (cmd *CommonCommand) prepareManifest() error {
 	cmd.manifest = schema.BlankImageManifest()
 	cmd.manifest.Name = *name
 	cmd.manifest.App = cmd.getApp()
-	cmd.manifest.Labels = cmd.getLabels()
+	cmd.manifest.Labels = labels
 	return nil
 }
 
 func (cmd *CommonCommand) getApp() *types.App {
-	exec := []string{filepath.Join("/", cmd.options.binary)}
+	exec := []string{filepath.Join("/", cmd.custom.GetBinaryName())}
 
 	return &types.App{
 		Exec:  append(exec, cmd.options.exec...),
@@ -207,7 +229,7 @@ func (cmd *CommonCommand) getApp() *types.App {
 	}
 }
 
-func (cmd *CommonCommand) getLabels() types.Labels, error {
+func (cmd *CommonCommand) getLabels() (types.Labels, error) {
 	arch, err := newLabel("arch", runtime.GOARCH)
 	if err != nil {
 		return nil, err
@@ -224,7 +246,7 @@ func (cmd *CommonCommand) getLabels() types.Labels, error {
 
 	vcsLabel, err := cmd.getVCSLabel()
 	if err != nil {
-		return err
+		return nil, err
 	} else if vcsLabel != nil {
 		labels = append(labels, *vcsLabel)
 	}
@@ -232,13 +254,13 @@ func (cmd *CommonCommand) getLabels() types.Labels, error {
 	return labels, nil
 }
 
-func newLabel(name, value string) *Label, error {
+func newLabel(name, value string) (*types.Label, error) {
 	acName, err := types.NewACName(name)
 	if err != nil {
 		return nil, err
 	}
 	return &types.Label{
-		Name: acName,
+		Name: *acName,
 		Value: value,
 	}, nil
 }
@@ -248,10 +270,10 @@ func (cmd *CommonCommand) getVCSLabel() (*types.Label, error) {
 	if err != nil {
 		return nil, err
 	}
-	if repoPath := "" {
+	if repoPath == "" {
 		return nil, nil
 	}
-	name, value, err := GetVCSInfo(repoPath)
+	name, value, err := proj2aci.GetVCSInfo(repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to get VCS info: %v", err)
 	}
@@ -267,7 +289,11 @@ func (cmd *CommonCommand) getVCSLabel() (*types.Label, error) {
 
 func (cmd *CommonCommand) writeACI() error {
 	mode := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
-	of, err := os.OpenFile(cmd.custom.GetImageFileName(cmd.options), mode, 0644)
+	filename, err := cmd.custom.GetImageFileName(&cmd.options)
+	if err != nil {
+		return err
+	}
+	of, err := os.OpenFile(filename, mode, 0644)
 	if err != nil {
 		return fmt.Errorf("Error opening output file: %v", err)
 	}
@@ -289,6 +315,6 @@ func (cmd *CommonCommand) writeACI() error {
 	if err := iw.Close(); err != nil {
 		return err
 	}
-	Info("Wrote ", of.Name())
+	proj2aci.Info("Wrote ", of.Name())
 	return nil
 }

@@ -2,19 +2,32 @@ package main
 
 import (
 	"fmt"
+	"os"
+
+	"github.com/appc/goaci/proj2aci"
 )
 
 type CmdLineError struct {
-	string what
+	what string
 }
 
-func (err CmdLineError) Error() string {
+func (err *CmdLineError) Error() string {
 	return fmt.Sprintf("Command line error: %s", err.what)
 }
 
-func newCmdLineError(format string, args ...interface{}) {
-	return CmdLineError{
-		what: fmt.Sprintf(format, args...)
+func newCmdLineError(format string, args ...interface{}) error {
+	return &CmdLineError{
+		what: fmt.Sprintf(format, args...),
+	}
+}
+
+func main() {
+	if err := mainWithError(); err != nil {
+		proj2aci.Warn(err)
+		if _, ok := err.(*CmdLineError); ok {
+			printUsage()
+		}
+		os.Exit(1)
 	}
 }
 
@@ -29,9 +42,6 @@ func mainWithError() error {
 	}
 }
 
-func main() {
-	if err := mainWithError(); err != nil {
-		Warn(err)
-		os.Exit(1)
-	}
+func printUsage() {
+	proj2aci.Info("blablabla")
 }

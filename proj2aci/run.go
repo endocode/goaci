@@ -1,5 +1,13 @@
 package proj2aci
 
+import (
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
+)
+
 type CmdFailedError struct {
 	Err error
 }
@@ -16,16 +24,17 @@ func (e CmdNotFoundError) Error() string {
 	return fmt.Sprintf("CmdNotFoundError: %s", e.Err.Error())
 }
 
-func RunCmdFull(exec string, args, env []string, cwd string, stdout, stderr io.Writer) error {
+func RunCmdFull(execProg string, args, env []string, cwd string, stdout, stderr io.Writer) error {
 	if len(args) < 1 {
 		return fmt.Errorf("No args to execute passed")
 	}
-	prog := exec
+	prog := execProg
 	if prog == "" {
-		prog, err := exec.LookPath(args[0])
+		pathProg, err := exec.LookPath(args[0])
 		if err != nil {
-			return CmdNotFound{err}
+			return CmdNotFoundError{err}
 		}
+		prog = pathProg
 	}
 	cmd := exec.Cmd{
 		Path:   prog,

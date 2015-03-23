@@ -2,22 +2,28 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/appc/spec/schema"
+	"github.com/appc/spec/schema/types"
+	"github.com/appc/goaci/proj2aci"
 )
 
 type GoPaths struct {
 	project string
-	realGo string
-	fakeGo string
-	goRoot string
+	realGo  string
+	fakeGo  string
+	goRoot  string
+	goBin   string
 }
 
 type GoOptions struct {
 	goBinary string
-	goPath string
+	goPath   string
 }
 
 type GoCustomization struct {
@@ -32,8 +38,8 @@ func (custom *GoCustomization) Name() string {
 
 func (custom *GoCustomization) GetPlaceholderMapping() map[string]string {
 	return map[string]string{
-		"<PROJPATH>": custom.projectPath,
-		"<GOPATH>":   custom.goPath,
+		"<PROJPATH>": custom.paths.project,
+		"<GOPATH>":   custom.paths.realGo,
 	}
 }
 
@@ -49,7 +55,7 @@ func (custom *GoCustomization) SetupParameters(parameters *flag.FlagSet) {
 	flag.StringVar(&custom.options.goBinary, "go-binary", gocmd, goDefaultBinaryDesc)
 
 	// --go-path
-	flag.StringVar(&opts.option.goPath, "go-path", "", "Custom GOPATH (default: a temporary directory)")
+	flag.StringVar(&custom.options.goPath, "go-path", "", "Custom GOPATH (default: a temporary directory)")
 }
 
 func (custom *GoCustomization) ValidateOptions(options *CommonOptions) error {
@@ -59,21 +65,23 @@ func (custom *GoCustomization) ValidateOptions(options *CommonOptions) error {
 	return nil
 }
 
-func (custom *GoCustomization) SetupPaths(paths *CommonPaths) error {
-	custom.paths.realGo, custom.paths.fakeGo := custom.getGoPath(paths)
+func (custom *GoCustomization) SetupPaths(paths *CommonPaths, project string) error {
+	custom.paths.realGo, custom.paths.fakeGo = custom.getGoPath(paths)
 
 	if os.Getenv("GOPATH") != "" {
-		Warn("GOPATH env var is ignored, use --go-path=\"$GOPATH\" option instead")
+		proj2aci.Warn("GOPATH env var is ignored, use --go-path=\"$GOPATH\" option instead")
 	}
-	custom.paths.goRoot := os.Getenv("GOROOT")
-	if goRoot != "" {
-		Warn("Overriding GOROOT env var to ", goRoot)
+	custom.paths.goRoot = os.Getenv("GOROOT")
+	if custom.paths.goRoot != "" {
+		proj2aci.Warn("Overriding GOROOT env var to ", custom.paths.goRoot)
 	}
 
+	projectName := getProjectName(project)
 	// Project name is path-like string with slashes, but slash is
 	// not a file separator on every OS.
-	custom.paths.project := filepath.Join(goPath, "src", filepath.Join(strings.Split(projectName, "/")...))
-	custom.paths.goBin := filepath.Join(fakeGoPath, "bin")
+	custom.paths.project = filepath.Join(custom.paths.realGo, "src", filepath.Join(strings.Split(projectName, "/")...))
+	custom.paths.goBin = filepath.Join(custom.paths.fakeGo, "bin")
+	return nil
 }
 
 // getGoPath returns go path and fake go path. The former is either in
@@ -87,6 +95,13 @@ func (custom *GoCustomization) getGoPath(paths *CommonPaths) (string, string) {
 	return custom.options.goPath, fakeGoPath
 }
 
+func getProjectName(project string) string {
+	if filepath.Base(project) != "..." {
+		return project
+	}
+	return filepath.Dir(project)
+}
+
 func (custom *GoCustomization) GetDirectoriesToMake() []string {
 	return []string{
 		custom.paths.fakeGo,
@@ -97,38 +112,38 @@ func (custom *GoCustomization) GetDirectoriesToMake() []string {
 func (custom *GoCustomization) PrepareProject(options *CommonOptions, paths *CommonPaths) error {
 	// Construct args for a go get that does a static build
 	args := []string{
-		pathsNames.goExecPath,
+		"go",
 		"get",
 		"-a",
 		"-tags", "netgo",
 		"-ldflags", "'-w'",
 		"-installsuffix", "nocgo", // for 1.4
-		opts.project,
+		options.project,
 	}
 
 	env := []string{
-		"GOPATH=" + pathsNames.goPath,
-		"GOBIN=" + pathsNames.goBinPath,
+		"GOPATH=" + custom.paths.realGo,
+		"GOBIN=" + custom.paths.goBin,
 		"CGO_ENABLED=0",
 		"PATH=" + os.Getenv("PATH"),
 	}
-	if pathsNames.goRootPath != "" {
-		env = append(env, "GOROOT="+pathsNames.goRootPath)
+	if custom.paths.goRoot != "" {
+		env = append(env, "GOROOT="+custom.paths.goRoot)
 	}
 
 	cmd := exec.Cmd{
 		Env:    env,
-		Path:   pathsNames.goExecPath,
+		Path:   custom.options.goBinary,
 		Args:   args,
 		Stderr: os.Stderr,
 		Stdout: os.Stdout,
 	}
-	Debug("env: ", cmd.Env)
-	Debug("running command: ", strings.Join(cmd.Args, " "))
+	proj2aci.Debug("env: ", cmd.Env)
+	proj2aci.Debug("running command: ", strings.Join(cmd.Args, " "))
 	if err := cmd.Run(); err != nil {
 		return err
 	}
-	err := custom.findBinaryName(); err != nil {
+	if err := custom.findBinaryName(options); err != nil {
 		return err
 	}
 	return nil
@@ -136,48 +151,39 @@ func (custom *GoCustomization) PrepareProject(options *CommonOptions, paths *Com
 
 // getBinaryName get a binary name built by go get and selected by
 // --use-binary parameter.
-func (custom *GoCustomization) findBinaryName(options *CommonOptions, paths *CommonPaths) error {
-	fi, err := ioutil.ReadDir(custom.paths.goBin)
+func (custom *GoCustomization) findBinaryName(options *CommonOptions) error {
+	binaryName, err := proj2aci.GetBinaryName(custom.paths.goBin, options.useBinary)
 	if err != nil {
 		return err
 	}
-
-	switch {
-	case len(fi) < 1:
-		return fmt.Errorf("No binaries found in gobin.")
-	case len(fi) == 1:
-		name := fi[0].Name()
-		if options.useBinary != "" && name != options.useBinary {
-			return fmt.Errorf("No such binary found in gobin: %q. There is only %q", options.useBinary, name)
-		}
-		Debug("found binary: ", name)
-		custom.app = name
-		return nil
-	case len(fi) > 1:
-		names := []string{}
-		for _, v := range fi {
-			names = append(names, v.Name())
-		}
-		if options.useBinary == "" {
-			return fmt.Errorf("Found multiple binaries in gobin, but --use-binary option is not used. Please specify which binary to put in ACI. Following binaries are available: %q", strings.Join(names, `", "`))
-		}
-		for _, v := range names {
-			if v == options.useBinary {
-				custom.app = v
-				return nil
-			}
-		}
-		return fmt.Errorf("No such binary found in gobin: %q. There are following binaries available: %q", options.useBinary, strings.Join(names, `", "`))
-	}
-	panic("Reaching this point shouldn't be possible.")
+	custom.app = binaryName
+	return nil
 }
 
-func (custom *GoCustomization) GetAssets() ([]string, error) {
-	aciAsset := filepath.Join("/", custom.app)
+func (custom *GoCustomization) GetAssets(aciBinDir string) ([]string, error) {
+	aciAsset := filepath.Join(aciBinDir, custom.app)
 	localAsset := filepath.Join(custom.paths.goBin, custom.app)
-	asset := fmt.Sprintf("%s%s%s", aciAsset, FileSeparator(), localAsset)
 
-	return []string{asset}, nil
+	return []string{proj2aci.GetAssetString(aciAsset, localAsset)}, nil
+}
+
+func (custom *GoCustomization) GetImageACName(options *CommonOptions) (*types.ACName, error) {
+	imageACName := options.project
+	if filepath.Base(imageACName) == "..." {
+		imageACName = filepath.Dir(imageACName)
+		if options.useBinary != "" {
+			imageACName += "-" + options.useBinary
+		}
+	}
+	return types.NewACName(imageACName)
+}
+
+func (custom *GoCustomization) GetBinaryName() string {
+	return custom.app
+}
+
+func (custom *GoCustomization) GetRepoPath() (string, error) {
+	return custom.paths.project, nil
 }
 
 func (custom *GoCustomization) GetImageFileName(options *CommonOptions) (string, error) {
@@ -188,16 +194,5 @@ func (custom *GoCustomization) GetImageFileName(options *CommonOptions) (string,
 			base += "-" + options.useBinary
 		}
 	}
-	return base + schema.ACIExtension
-}
-
-func (custom *GoCustomization) GetImageACName(options *CommonOptions) (types.ACName, error) {
-	imageACName := options.project
-	if filepath.Base(imageACName) == "..." {
-		imageACName = filepath.Dir(imageACName)
-		if options.useBinary != "" {
-			imageACName += "-" + options.useBinary
-		}
-	}
-	return imageACName
+	return base + schema.ACIExtension, nil
 }
