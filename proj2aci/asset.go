@@ -123,6 +123,9 @@ func copyTree(src, dest string) error {
 }
 
 func copyRegularFile(src, dest string) error {
+	// TODO: Check if dest file already exists and if so, check its
+	// checksum. If the checksum of src and dest are the same then
+	// just return with no error. Otherwise return an error.
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
@@ -151,6 +154,9 @@ func copySymlink(src, dest string) error {
 	if err != nil {
 		return err
 	}
+	// TODO: Check if dest already exists and is a symlink with
+	// the same target as src. If so just return with no error,
+	// otherwise return an error.
 	if err := os.Symlink(symTarget, dest); err != nil {
 		return err
 	}

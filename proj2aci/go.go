@@ -102,16 +102,12 @@ func (custom *GoCustomizations) PrepareProject() error {
 		"go",
 		"get",
 		"-a",
-		"-tags", "netgo",
-		"-ldflags", "'-w'",
-		"-installsuffix", "nocgo", // for 1.4
 		custom.Configuration.Project,
 	}
 
 	env := []string{
 		"GOPATH=" + custom.paths.realGo,
 		"GOBIN=" + custom.paths.goBin,
-		"CGO_ENABLED=0",
 		"PATH=" + os.Getenv("PATH"),
 	}
 	if custom.paths.goRoot != "" {
