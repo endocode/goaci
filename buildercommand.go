@@ -34,11 +34,11 @@ func (cmd *builderCommand) Run(name string, args []string) error {
 	if err := parameters.Parse(args); err != nil {
 		return err
 	}
-	if len(flag.Args()) != 1 {
+	if len(parameters.Args()) != 1 {
 		return fmt.Errorf("Expected exactly one project to build, got %d", len(args))
 	}
 	custom := cmd.b.GetBuilderCustomizations()
-	custom.GetCommonConfiguration().Project = flag.Args()[0]
+	custom.GetCommonConfiguration().Project = parameters.Args()[0]
 	builder := proj2aci.NewBuilder(custom)
 	return builder.Run()
 }
