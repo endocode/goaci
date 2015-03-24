@@ -24,6 +24,13 @@ func (e CmdNotFoundError) Error() string {
 	return fmt.Sprintf("CmdNotFoundError: %s", e.Err.Error())
 }
 
+// RunCmdFull runs given execProg. execProg should be an absolute path
+// to a program or it can be an empty string. In the latter case first
+// string in args is taken and searched for in $PATH.
+//
+// If execution fails then CmdFailedError is returned. This can be
+// useful if we don't care if execution fails or not. CmdNotFoundError
+// is returned if executable is not found.
 func RunCmdFull(execProg string, args, env []string, cwd string, stdout, stderr io.Writer) error {
 	if len(args) < 1 {
 		return fmt.Errorf("No args to execute passed")
@@ -35,6 +42,8 @@ func RunCmdFull(execProg string, args, env []string, cwd string, stdout, stderr 
 			return CmdNotFoundError{err}
 		}
 		prog = pathProg
+	} else if _, err := os.Stat(prog); err != nil {
+		return CmdNotFoundError{err}
 	}
 	cmd := exec.Cmd{
 		Path:   prog,

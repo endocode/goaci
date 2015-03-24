@@ -10,10 +10,16 @@ import (
 	"strings"
 )
 
+// GetAssetString returns a properly formatted asset string.
 func GetAssetString(aciAsset, localAsset string) string {
 	return getAssetString(aciAsset, localAsset)
 }
 
+// PrepareAssets copies given assets to ACI rootfs directory. It also
+// tries to copy required shared libraries if an asset is a
+// dynamically linked executable or library. placeholderMapping maps
+// placeholders (like "<INSTALLDIR>") to actual paths (usually
+// something inside temporary directory).
 func PrepareAssets(assets []string, rootfs string, placeholderMapping map[string]string) error {
 	newAssets := assets
 	for len(newAssets) > 0 {
@@ -30,10 +36,13 @@ func PrepareAssets(assets []string, rootfs string, placeholderMapping map[string
 	return nil
 }
 
+// processAsset validates an asset, replaces placeholders with real
+// paths and does the copying. It may return additional assets to be
+// processed when asset is an executable or a library.
 func processAsset(asset, rootfs string, placeholderMapping map[string]string) ([]string, error) {
 	splitAsset := filepath.SplitList(asset)
 	if len(splitAsset) != 2 {
-		return nil, fmt.Errorf("Malformed asset option: '%v' - expected two absolute paths separated with %v", asset, ListSeparator())
+		return nil, fmt.Errorf("Malformed asset option: '%v' - expected two absolute paths separated with %v", asset, listSeparator())
 	}
 	ACIAsset := replacePlaceholders(splitAsset[0], placeholderMapping)
 	localAsset := replacePlaceholders(splitAsset[1], placeholderMapping)
@@ -148,6 +157,15 @@ func copySymlink(src, dest string) error {
 	return nil
 }
 
+// getSoLibs tries to run ldd on given path and to process its output
+// to get a list of shared libraries to copy. This list is returned as
+// an array of assets.
+//
+// man ldd says that running ldd on untrusted executables is dangerous
+// (it might run an executable to get the libraries), so possibly this
+// should be replaced with objdump. Problem with objdump is that it
+// just gives library names, while ldd absolute paths to those
+// libraries - to use objdump we need to know the $libdir.
 func getSoLibs(path string) ([]string, error) {
 	assets := []string{}
 	buf := new(bytes.Buffer)
@@ -176,6 +194,9 @@ func getSoLibs(path string) ([]string, error) {
 	return assets, nil
 }
 
+// getSymlinkedAssets returns an array of many assets if given path is
+// a symlink - useful for getting shared libraries, which are often
+// surrounded with a bunch of symlinks.
 func getSymlinkedAssets(path string) ([]string, error) {
 	assets := []string{}
 	maxLevels := 100
@@ -211,7 +232,7 @@ func getSymlinkedAssets(path string) ([]string, error) {
 }
 
 func getAssetString(aciAsset, localAsset string) string {
-	return fmt.Sprintf("%s%s%s", aciAsset, ListSeparator(), localAsset)
+	return fmt.Sprintf("%s%s%s", aciAsset, listSeparator(), localAsset)
 }
 
 func isSymlink(mode os.FileMode) bool {

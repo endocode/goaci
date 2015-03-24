@@ -11,6 +11,12 @@ import (
 	"github.com/appc/spec/schema/types"
 )
 
+type GoConfiguration struct {
+	CommonConfiguration
+	GoBinary string
+	GoPath   string
+}
+
 type GoPaths struct {
 	CommonPaths
 	project string
@@ -18,12 +24,6 @@ type GoPaths struct {
 	fakeGo  string
 	goRoot  string
 	goBin   string
-}
-
-type GoConfiguration struct {
-	CommonConfiguration
-	GoBinary string
-	GoPath   string
 }
 
 type GoCustomizations struct {

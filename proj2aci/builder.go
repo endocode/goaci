@@ -14,6 +14,11 @@ import (
 	"github.com/appc/spec/schema/types"
 )
 
+// CommonConfiguration keeps configuration items common for all the
+// builders. Users of a Builder are supposed to create a
+// BuilderCustomizations instance, get a CommonConfiguration instance
+// via GetCommonConfiguration function and modify it before running
+// Builder.Run().
 type CommonConfiguration struct {
 	Exec        []string
 	UseBinary   string
@@ -24,12 +29,16 @@ type CommonConfiguration struct {
 	Project     string
 }
 
+// CommonPaths keeps some paths common for all builders. Implementers
+// of new BuilderCustomizations can read those after they are set up.
 type CommonPaths struct {
 	TmpDir string
 	AciDir string
 	RootFS string
 }
 
+// BuilderCustomizations is an interface for customizing a build
+// process. The order of function roughly describe the build process.
 type BuilderCustomizations interface {
 	Name() string
 	GetCommonConfiguration() *CommonConfiguration

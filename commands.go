@@ -6,8 +6,8 @@ var (
 
 func init() {
 	commands := []command{
-		newBuilderCommand(newGoBuild()),
-		newBuilderCommand(newCmakeBuild()),
+		newBuilderCommand(newGoParameterMapper()),
+		newBuilderCommand(newCmakeParameterMapper()),
 	}
 	for _, c := range commands {
 		commandsHash[c.Name()] = c

@@ -10,19 +10,19 @@ import (
 	"github.com/appc/spec/schema/types"
 )
 
+type CmakeConfiguration struct {
+	CommonConfiguration
+	BinDir      string
+	ReuseSrcDir string
+	CmakeParams []string
+}
+
 type CmakePaths struct {
 	CommonPaths
 	src     string
 	build   string
 	install string
 	binDir  string
-}
-
-type CmakeConfiguration struct {
-	CommonConfiguration
-	BinDir      string
-	ReuseSrcDir string
-	CmakeParams []string
 }
 
 type CmakeCustomizations struct {
