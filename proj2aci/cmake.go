@@ -8,6 +8,8 @@ import (
 
 	"github.com/appc/spec/schema"
 	"github.com/appc/spec/schema/types"
+
+	"golang.org/x/tools/go/vcs"
 )
 
 type CmakeConfiguration struct {
@@ -82,7 +84,7 @@ func (custom *CmakeCustomizations) GetDirectoriesToMake() []string {
 
 func (custom *CmakeCustomizations) PrepareProject() error {
 	if custom.Configuration.ReuseSrcDir == "" {
-		if err := custom.runShallowGitClone(); err != nil {
+		if err := custom.createRepo(); err != nil {
 			return err
 		}
 	}
@@ -106,16 +108,12 @@ func (custom *CmakeCustomizations) PrepareProject() error {
 	return nil
 }
 
-// TODO: Replace with stuff from go tools
-func (custom *CmakeCustomizations) runShallowGitClone() error {
-	args := []string{
-		"git",
-		"clone",
-		"--depth=1",
-		fmt.Sprintf("https://%s", custom.Configuration.Project),
-		custom.paths.src,
+func (custom *CmakeCustomizations) createRepo() error {
+	repo, err := vcs.RepoRootForImportPath(custom.Configuration.Project, false)
+	if err != nil {
+		return err
 	}
-	return RunCmd(args, nil, "")
+	return repo.VCS.Create(custom.paths.src, repo.Repo)
 }
 
 func (custom *CmakeCustomizations) runCmake() error {
