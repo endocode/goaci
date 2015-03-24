@@ -150,7 +150,7 @@ func (cmd *Builder) setupPaths() error {
 	} else if config.ReuseTmpDir != "" {
 		tmpDir = config.ReuseTmpDir
 	} else {
-		tmpName := fmt.Sprintf("proj2aci-%s", cmd.custom.Name())
+		tmpName := fmt.Sprintf("proj2aci-%s-", cmd.custom.Name())
 		aTmpDir, err := ioutil.TempDir("", tmpName)
 		if err != nil {
 			return fmt.Errorf("Failed to set up temporary directory: %v", err)
