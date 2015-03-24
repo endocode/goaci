@@ -12,6 +12,16 @@ import (
 var debugEnabled bool
 var pathListSep string
 
+func DirExists(path string) bool {
+	if path != "" {
+		fi, err := os.Stat(path)
+		if err != nil || !fi.IsDir() {
+			return false
+		}
+	}
+	return true
+}
+
 func printTo(w io.Writer, i ...interface{}) {
 	s := fmt.Sprint(i...)
 	fmt.Fprintln(w, strings.TrimSuffix(s, "\n"))

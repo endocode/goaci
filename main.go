@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/appc/goaci/proj2aci"
 )
@@ -36,12 +37,22 @@ func mainWithError() error {
 		return newCmdLineError("No command specified")
 	}
 	if c, ok := commandsHash[os.Args[1]]; ok {
-		return c.Run(os.Args[2:])
+		name := fmt.Sprintf("%s %s", os.Args[0], os.Args[1])
+		return c.Run(name, os.Args[2:])
 	} else {
 		return newCmdLineError("No such command: %q", os.Args[1])
 	}
 }
 
 func printUsage() {
-	proj2aci.Info("blablabla")
+	fmt.Println("Available commands:")
+	commands := make([]string, 0, len(commandsHash))
+	for c := range commandsHash {
+		commands = append(commands, c)
+	}
+	sort.Strings(commands)
+	for _, c := range commands {
+		fmt.Printf("  %s\n", c)
+	}
+	fmt.Printf("Type %s <command> --help to get possible options for chosen command\n", os.Args[0])
 }

@@ -1,6 +1,6 @@
 package main
 
-type Command interface {
+type command interface {
 	Name() string
-	Run(args []string) error
+	Run(name string, args []string) error
 }

@@ -30,11 +30,13 @@ func (v *StringVector) Set(str string) error {
 }
 
 type CommonOptions struct {
-	exec      StringVector
-	useBinary string
-	assets    StringVector
-	keepTmp   bool
-	project   string
+	exec        StringVector
+	useBinary   string
+	assets      StringVector
+	keepTmpDir  bool
+	tmpDir      string
+	reuseTmpDir string
+	project     string
 }
 
 type CommonPaths struct {
@@ -86,18 +88,28 @@ func (cmd *CommonCommand) Run(args []string) error {
 		return err
 	}
 
-	if cmd.options.keepTmp {
+	if cmd.options.keepTmpDir {
 		proj2aci.Info(`Preserving temporary directory "`, cmd.paths.tmpDir, `"`)
 	} else {
 		defer os.RemoveAll(cmd.paths.tmpDir)
 	}
 
-	if err := cmd.makeDirectories(); err != nil {
-		return err
-	}
+	if cmd.options.reuseTmpDir != "" {
+		if err := os.RemoveAll(cmd.paths.aciDir); err != nil {
+			return err
+		}
 
-	if err := cmd.prepareProject(); err != nil {
-		return err
+		if err := cmd.makeDirectories(); err != nil {
+			return err
+		}
+	} else {
+		if err := cmd.makeDirectories(); err != nil {
+			return err
+		}
+
+		if err := cmd.prepareProject(); err != nil {
+			return err
+		}
 	}
 
 	if err := cmd.copyAssets(); err != nil {
@@ -116,7 +128,8 @@ func (cmd *CommonCommand) Run(args []string) error {
 }
 
 func (cmd *CommonCommand) setupOptions(args []string) error {
-	parameters := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	name := fmt.Sprintf("%s %s", os.Args[0], cmd.custom.Name())
+	parameters := flag.NewFlagSet(name, flag.ExitOnError)
 	cmd.setupParameters(parameters)
 	if err := parameters.Parse(args); err != nil {
 		return err
@@ -143,8 +156,14 @@ func (cmd *CommonCommand) setupParameters(parameters *flag.FlagSet) {
 	sort.Strings(placeholders)
 	parameters.Var(&cmd.options.assets, "asset", "Additional assets, can be used multiple times; format: "+proj2aci.GetAssetString("<path in ACI rootfs>","<local path>")+"; available placeholders for use: " + strings.Join(placeholders, ", "))
 
-	// --keep-tmp
-	parameters.BoolVar(&cmd.options.keepTmp, "keep-tmp", false, "Do not delete temporary directory used for creating ACI")
+	// --keep-tmp-dir
+	parameters.BoolVar(&cmd.options.keepTmpDir, "keep-tmp-dir", false, "Do not delete temporary directory used for creating ACI")
+
+	// --tmp-dir
+	parameters.StringVar(&cmd.options.tmpDir, "tmp-dir", "", "Use this directory for build a project and an ACI image")
+
+	// --reuse-tmp-dir
+	parameters.StringVar(&cmd.options.reuseTmpDir, "reuse-tmp-dir", "", "Use this already existing directory with built project to build an ACI image; ACI specific contents in this directory are removed before reuse")
 
 	cmd.custom.SetupParameters(parameters)
 }
@@ -155,14 +174,30 @@ func (cmd *CommonCommand) validateOptions(parameters *flag.FlagSet) error {
 		return fmt.Errorf("Expected exactly one project to build, got %d", len(args))
 	}
 	cmd.options.project = args[0]
+
+	if cmd.options.tmpDir != "" && cmd.options.reuseTmpDir != "" && cmd.options.tmpDir != cmd.options.reuseTmpDir {
+		return fmt.Errorf("Specified both tmp dir to reuse and a tmp dir and they are different. ")
+	}
+	if !proj2aci.DirExists(cmd.options.reuseTmpDir) {
+		return fmt.Errorf("Invalid tmp dir to reuse")
+	}
+
 	return cmd.custom.ValidateOptions(&cmd.options)
 }
 
 func (cmd *CommonCommand) setupPaths() error {
-	tmpName := fmt.Sprintf("proj2aci-%s", cmd.custom.Name())
-	tmpDir, err := ioutil.TempDir("", tmpName)
-	if err != nil {
-		return fmt.Errorf("Failed to set up temporary directory: %v", err)
+	tmpDir := ""
+	if cmd.options.tmpDir != "" {
+		tmpDir = cmd.options.tmpDir
+	} else if cmd.options.reuseTmpDir != "" {
+		tmpDir = cmd.options.reuseTmpDir
+	} else {
+		tmpName := fmt.Sprintf("proj2aci-%s", cmd.custom.Name())
+		aTmpDir, err := ioutil.TempDir("", tmpName)
+		if err != nil {
+			return fmt.Errorf("Failed to set up temporary directory: %v", err)
+		}
+		tmpDir = aTmpDir
 	}
 	cmd.paths.tmpDir = tmpDir
 	cmd.paths.aciDir = filepath.Join(cmd.paths.tmpDir, "aci")
@@ -175,7 +210,12 @@ func (cmd *CommonCommand) makeDirectories() error {
 		cmd.paths.aciDir,
 		cmd.paths.rootFS,
 	}
-	toMake = append(toMake, cmd.custom.GetDirectoriesToMake()...)
+	if cmd.options.reuseTmpDir == "" {
+		toMake = append(toMake, cmd.custom.GetDirectoriesToMake()...)
+		if cmd.options.tmpDir != "" {
+			toMake = append(toMake, cmd.paths.tmpDir)
+		}
+	}
 
 	for _, dir := range toMake {
 		if err := os.Mkdir(dir, 0755); err != nil {

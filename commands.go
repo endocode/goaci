@@ -1,13 +1,13 @@
 package main
 
 var (
-	commandsHash map[string]Command = make(map[string]Command)
+	commandsHash map[string]command = make(map[string]command)
 )
 
 func init() {
-	commands := []Command{
-		NewCommonCommand(&GoCustomization{}),
-		NewCommonCommand(&CmakeCustomization{}),
+	commands := []command{
+		newBuilderCommand(newGoBuild()),
+		newBuilderCommand(newCmakeBuild()),
 	}
 	for _, c := range commands {
 		commandsHash[c.Name()] = c
