@@ -9,13 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sort"
+	"strings"
 
+	"github.com/appc/goaci/proj2aci"
 	"github.com/appc/spec/aci"
 	"github.com/appc/spec/schema"
 	"github.com/appc/spec/schema/types"
-	"github.com/appc/goaci/proj2aci"
 )
 
 type StringVector []string
@@ -70,7 +70,7 @@ type CommonCommand struct {
 
 func NewCommonCommand(custom Customizations) Command {
 	return &CommonCommand{
-		custom: custom,
+		custom:    custom,
 		aciBinDir: "/",
 	}
 }
@@ -148,13 +148,13 @@ func (cmd *CommonCommand) setupParameters(parameters *flag.FlagSet) {
 	parameters.StringVar(&cmd.options.useBinary, "use-binary", "", "Which executable to put in ACI image")
 
 	// --asset
-	mapping := cmd.custom.GetPlaceholderMapping();
+	mapping := cmd.custom.GetPlaceholderMapping()
 	placeholders := make([]string, 0, len(mapping))
 	for p, _ := range mapping {
 		placeholders = append(placeholders, p)
 	}
 	sort.Strings(placeholders)
-	parameters.Var(&cmd.options.assets, "asset", "Additional assets, can be used multiple times; format: "+proj2aci.GetAssetString("<path in ACI rootfs>","<local path>")+"; available placeholders for use: " + strings.Join(placeholders, ", "))
+	parameters.Var(&cmd.options.assets, "asset", "Additional assets, can be used multiple times; format: "+proj2aci.GetAssetString("<path in ACI rootfs>", "<local path>")+"; available placeholders for use: "+strings.Join(placeholders, ", "))
 
 	// --keep-tmp-dir
 	parameters.BoolVar(&cmd.options.keepTmpDir, "keep-tmp-dir", false, "Do not delete temporary directory used for creating ACI")
@@ -300,7 +300,7 @@ func newLabel(name, value string) (*types.Label, error) {
 		return nil, err
 	}
 	return &types.Label{
-		Name: *acName,
+		Name:  *acName,
 		Value: value,
 	}, nil
 }

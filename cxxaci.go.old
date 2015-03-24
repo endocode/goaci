@@ -65,13 +65,13 @@ func getOptions() (*options, error) {
 	flag.StringVar(&opts.useBinary, "use-binary", "", "Which executable to put in ACI image")
 
 	// --asset
-	emptyPlaceholders := getEmptyPlaceholderMapping();
+	emptyPlaceholders := getEmptyPlaceholderMapping()
 	placeholders := make([]string, 0, len(emptyPlaceholders))
 	for p := range emptyPlaceholders {
 		placeholders = append(placeholders, p)
 	}
 	sort.Strings(placeholders)
-	flag.Var(&opts.assets, "asset", "Additional assets, can be used multiple times; format: <path in ACI>"+ListSeparator()+"<local path>; available placeholders for use: " + strings.Join(placeholders, ", "))
+	flag.Var(&opts.assets, "asset", "Additional assets, can be used multiple times; format: <path in ACI>"+ListSeparator()+"<local path>; available placeholders for use: "+strings.Join(placeholders, ", "))
 
 	// --keep-tmp
 	flag.BoolVar(&opts.keepTmp, "keep-tmp", false, "Do not delete temporary directory used for creating ACI")

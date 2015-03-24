@@ -42,7 +42,7 @@ func (build *commonBuild) setupCommonParameters(parameters *flag.FlagSet) {
 
 	// --asset
 	build.assetWrapper.vector = &build.config.Assets
-	parameters.Var(&build.assetWrapper, "asset", "Additional assets, can be used multiple times; format: "+proj2aci.GetAssetString("<path in ACI rootfs>","<local path>")+"; available placeholders for use: " + build.getPlaceholders())
+	parameters.Var(&build.assetWrapper, "asset", "Additional assets, can be used multiple times; format: "+proj2aci.GetAssetString("<path in ACI rootfs>", "<local path>")+"; available placeholders for use: "+build.getPlaceholders())
 
 	// --keep-tmp-dir
 	parameters.BoolVar(&build.config.KeepTmpDir, "keep-tmp-dir", false, "Do not delete temporary directory used for creating ACI")
@@ -55,7 +55,7 @@ func (build *commonBuild) setupCommonParameters(parameters *flag.FlagSet) {
 }
 
 func (build *commonBuild) getPlaceholders() string {
-	mapping := build.custom.GetPlaceholderMapping();
+	mapping := build.custom.GetPlaceholderMapping()
 	placeholders := make([]string, 0, len(mapping))
 	for p := range mapping {
 		placeholders = append(placeholders, p)

@@ -29,8 +29,8 @@ type GoConfiguration struct {
 type GoCustomizations struct {
 	Configuration GoConfiguration
 
-	paths   GoPaths
-	app     string
+	paths GoPaths
+	app   string
 }
 
 func (custom *GoCustomizations) Name() string {

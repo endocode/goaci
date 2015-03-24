@@ -28,8 +28,8 @@ type CmakeConfiguration struct {
 type CmakeCustomizations struct {
 	Configuration CmakeConfiguration
 
-	paths         CmakePaths
-	fullBinPath   string
+	paths       CmakePaths
+	fullBinPath string
 }
 
 func (custom *CmakeCustomizations) Name() string {

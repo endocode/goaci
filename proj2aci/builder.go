@@ -47,14 +47,14 @@ type BuilderCustomizations interface {
 }
 
 type Builder struct {
-	manifest      *schema.ImageManifest
-	aciBinDir     string
-	custom        BuilderCustomizations
+	manifest  *schema.ImageManifest
+	aciBinDir string
+	custom    BuilderCustomizations
 }
 
 func NewBuilder(custom BuilderCustomizations) *Builder {
 	return &Builder{
-		custom: custom,
+		custom:    custom,
 		aciBinDir: "/",
 	}
 }
@@ -255,7 +255,7 @@ func newLabel(name, value string) (*types.Label, error) {
 		return nil, err
 	}
 	return &types.Label{
-		Name: *acName,
+		Name:  *acName,
 		Value: value,
 	}, nil
 }
