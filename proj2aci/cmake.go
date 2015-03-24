@@ -76,9 +76,8 @@ func (custom *CmakeCustomizations) GetDirectoriesToMake() []string {
 		custom.paths.build,
 		custom.paths.install,
 	}
-	if custom.Configuration.ReuseSrcDir == "" {
-		dirs = append(dirs, custom.paths.src)
-	}
+	// not creating custom.paths.src, because go.vcs requires the
+	// src directory to be nonexistent
 	return dirs
 }
 

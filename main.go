@@ -33,6 +33,7 @@ func main() {
 }
 
 func mainWithError() error {
+	proj2aci.InitDebug()
 	if len(os.Args) < 2 {
 		return newCmdLineError("No command specified")
 	}
