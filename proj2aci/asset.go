@@ -61,25 +61,9 @@ func processAsset(asset, rootfs string, placeholderMapping map[string]string) ([
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create directory tree for asset '%v': %v", asset, err)
 	}
-	err = copyTree(localAsset, filepath.Join(rootfs, ACIAsset))
+	additionalAssets, err := copyTree(localAsset, filepath.Join(rootfs, ACIAsset))
 	if err != nil {
 		return nil, fmt.Errorf("Failed to copy assets for %q: %v", asset, err)
-	}
-	additionalAssets, err := getSoLibs(localAsset)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to get dependent assets for %q: %v", localAsset, err)
-	}
-	// HACK! if we are copying libc then try to copy libnss_* libs
-	// (glibc name service switch libs used in networking)
-	if matched, err := filepath.Match("libc.*", filepath.Base(localAsset)); err == nil && matched {
-		toGlob := filepath.Join(filepath.Dir(localAsset), "libnss_*")
-		if matches, err := filepath.Glob(toGlob); err == nil && len(matches) > 0 {
-			matchesAsAssets := make([]string, 0, len(matches))
-			for _, f := range matches {
-				matchesAsAssets = append(matchesAsAssets, getAssetString(f, f))
-			}
-			additionalAssets = append(additionalAssets, matchesAsAssets...)
-		}
 	}
 	return additionalAssets, nil
 }
@@ -113,20 +97,22 @@ func validateAsset(ACIAsset, localAsset string) error {
 }
 
 type copyingWalkerData struct {
-	src  string
-	dest string
+	src              string
+	dest             string
+	additionalAssets []string
 }
 
-func copyTree(src, dest string) error {
+func copyTree(src, dest string) ([]string, error) {
 	data := &copyingWalkerData{
-		src:  src,
-		dest: dest,
+		src:              src,
+		dest:             dest,
+		additionalAssets: []string{},
 	}
 	err := filepath.Walk(src, getCopyingWalker(data))
 	if err != nil {
 		return nil, fmt.Errorf("Failed to copy %q to %q: %v", src, dest, err)
 	}
-	return nil
+	return data.additionalAssets, nil
 }
 
 func getCopyingWalker(data *copyingWalkerData) func(string, os.FileInfo, error) error {
@@ -144,8 +130,10 @@ func getCopyingWalker(data *copyingWalkerData) func(string, os.FileInfo, error) 
 				return err
 			}
 		case mode.IsRegular():
-			if err := copyRegularFile(path, target); err != nil {
+			if assets, err := copyRegularFile(path, target); err != nil {
 				return err
+			} else {
+				data.additionalAssets = append(data.additionalAssets, assets...)
 			}
 		case isSymlink(mode):
 			if err := copySymlink(path, target); err != nil {
@@ -158,28 +146,52 @@ func getCopyingWalker(data *copyingWalkerData) func(string, os.FileInfo, error) 
 	}
 }
 
-func copyRegularFile(src, dest string) error {
+func copyRegularFile(src, dest string) ([]string, error) {
 	srcFile, err := os.Open(src)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer srcFile.Close()
 	destFile, err := os.Create(dest)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer destFile.Close()
 	if _, err := io.Copy(destFile, srcFile); err != nil {
-		return err
+		return nil, err
 	}
 	fi, err := srcFile.Stat()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := destFile.Chmod(fi.Mode().Perm()); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return getAdditionalAssetsFor(src)
+}
+
+// getAdditionalAssetsFor tries to get a list of possible assets
+// required for src to work, that is - getting an interpreter if this
+// is an executable script, or getting shared libraries for an
+// executable binary or other shared library.
+func getAdditionalAssetsFor(src string) ([]string, error) {
+	additionalAssets, err := getSoLibs(src)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get dependent assets for %q: %v", src, err)
+	}
+	// HACK! if we are copying libc then try to copy libnss_* libs
+	// (glibc name service switch libs used in networking)
+	if matched, err := filepath.Match("libc.*", filepath.Base(src)); err == nil && matched {
+		toGlob := filepath.Join(filepath.Dir(src), "libnss_*")
+		if matches, err := filepath.Glob(toGlob); err == nil && len(matches) > 0 {
+			matchesAsAssets := make([]string, 0, len(matches))
+			for _, f := range matches {
+				matchesAsAssets = append(matchesAsAssets, getAssetString(f, f))
+			}
+			additionalAssets = append(additionalAssets, matchesAsAssets...)
+		}
+	}
+	return additionalAssets, nil
 }
 
 func copySymlink(src, dest string) error {
