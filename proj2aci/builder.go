@@ -27,6 +27,7 @@ type CommonConfiguration struct {
 	TmpDir      string
 	ReuseTmpDir string
 	Project     string
+	Excludes    []string
 }
 
 // CommonPaths keeps some paths common for all builders. Implementers
@@ -220,7 +221,11 @@ func (cmd *Builder) copyAssets() error {
 		return err
 	}
 	assets := append(config.Assets, customAssets...)
-	if err := PrepareAssets(assets, paths.RootFS, mapping); err != nil {
+	excludesSet := make(map[string]struct{}, len(config.Excludes))
+	for _, ex := range config.Excludes {
+		excludesSet[ex] = struct{}{}
+	}
+	if err := PrepareAssets(assets, paths.RootFS, mapping, excludesSet); err != nil {
 		return err
 	}
 	return nil

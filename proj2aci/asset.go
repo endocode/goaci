@@ -21,9 +21,10 @@ func GetAssetString(aciAsset, localAsset string) string {
 // dynamically linked executable or library. placeholderMapping maps
 // placeholders (like "<INSTALLDIR>") to actual paths (usually
 // something inside temporary directory).
-func PrepareAssets(assets []string, rootfs string, placeholderMapping map[string]string) error {
+func PrepareAssets(assets []string, rootfs string, placeholderMapping map[string]string, excludes map[string]struct{}) error {
 	newAssets := assets
 	processedAssets := make(map[string]struct{})
+	processedExcludes := processExcludes(excludes, placeholderMapping)
 	for len(newAssets) > 0 {
 		assetsToProcess := newAssets
 		newAssets = nil
@@ -34,7 +35,7 @@ func PrepareAssets(assets []string, rootfs string, placeholderMapping map[string
 				continue
 			}
 			processedAssets[asset] = struct{}{}
-			additionalAssets, err := processAsset(asset, rootfs, placeholderMapping)
+			additionalAssets, err := processAsset(asset, rootfs, placeholderMapping, processedExcludes)
 			if err != nil {
 				return err
 			}
@@ -44,10 +45,18 @@ func PrepareAssets(assets []string, rootfs string, placeholderMapping map[string
 	return nil
 }
 
+func processExcludes(excludes map[string]struct{}, mapping map[string]string) map[string]struct{} {
+	processedExcludes := make(map[string]struct{})
+	for ex := range excludes {
+		processedExcludes[replacePlaceholders(ex, mapping)] = struct{}{}
+	}
+	return processedExcludes
+}
+
 // processAsset validates an asset, replaces placeholders with real
 // paths and does the copying. It may return additional assets to be
 // processed when asset is an executable or a library.
-func processAsset(asset, rootfs string, placeholderMapping map[string]string) ([]string, error) {
+func processAsset(asset, rootfs string, placeholderMapping map[string]string, excludes map[string]struct{}) ([]string, error) {
 	splitAsset := filepath.SplitList(asset)
 	if len(splitAsset) != 2 {
 		return nil, fmt.Errorf("Malformed asset option: '%v' - expected two absolute paths separated with %v", asset, listSeparator())
@@ -62,7 +71,7 @@ func processAsset(asset, rootfs string, placeholderMapping map[string]string) ([
 	if err != nil {
 		return nil, fmt.Errorf("Failed to create directory tree for asset '%v': %v", asset, err)
 	}
-	additionalAssets, err := copyTree(localAsset, filepath.Join(rootfs, ACIAsset))
+	additionalAssets, err := copyTree(localAsset, filepath.Join(rootfs, ACIAsset), excludes)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to copy assets for %q: %v", asset, err)
 	}
@@ -101,13 +110,15 @@ type copyingWalkerData struct {
 	src              string
 	dest             string
 	additionalAssets []string
+	excludes         map[string]struct{}
 }
 
-func copyTree(src, dest string) ([]string, error) {
+func copyTree(src, dest string, excludes map[string]struct{}) ([]string, error) {
 	data := &copyingWalkerData{
 		src:              src,
 		dest:             dest,
 		additionalAssets: []string{},
+		excludes:         excludes,
 	}
 	err := filepath.Walk(src, getCopyingWalker(data))
 	if err != nil {
@@ -120,6 +131,13 @@ func getCopyingWalker(data *copyingWalkerData) func(string, os.FileInfo, error) 
 	return func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		if _, ok := data.excludes[path]; ok {
+			if info.IsDir() {
+				return filepath.SkipDir
+			} else {
+				return nil
+			}
 		}
 		rootLess := path[len(data.src):]
 		target := filepath.Join(data.dest, rootLess)

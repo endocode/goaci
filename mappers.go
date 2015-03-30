@@ -31,10 +31,11 @@ func (wrapper *stringSliceWrapper) Set(str string) error {
 // commonParameterMapper maps command line parameters to
 // proj2aci.CommonConfiguration.
 type commonParameterMapper struct {
-	custom       proj2aci.BuilderCustomizations
-	config       *proj2aci.CommonConfiguration
-	execWrapper  stringSliceWrapper
-	assetWrapper stringSliceWrapper
+	custom         proj2aci.BuilderCustomizations
+	config         *proj2aci.CommonConfiguration
+	execWrapper    stringSliceWrapper
+	assetWrapper   stringSliceWrapper
+	excludeWrapper stringSliceWrapper
 }
 
 func (mapper *commonParameterMapper) setupCommonParameters(parameters *flag.FlagSet) {
@@ -57,6 +58,10 @@ func (mapper *commonParameterMapper) setupCommonParameters(parameters *flag.Flag
 
 	// --reuse-tmp-dir
 	parameters.StringVar(&mapper.config.ReuseTmpDir, "reuse-tmp-dir", "", "Use this already existing directory with built project to build an ACI image; ACI specific contents in this directory are removed before reuse")
+
+	// --exclude
+	mapper.excludeWrapper.vector = &mapper.config.Excludes
+	parameters.Var(&mapper.excludeWrapper, "exclude", "List of excluded local files or directories, can be used multiple times; example: --exclude='<INSTALLPATH>/usr/local/mysql/mysql-test'")
 }
 
 func (mapper *commonParameterMapper) getPlaceholders() string {
