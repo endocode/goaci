@@ -1,6 +1,7 @@
 package proj2aci
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"io"
@@ -179,6 +180,11 @@ func getAdditionalAssetsFor(src string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Failed to get dependent assets for %q: %v", src, err)
 	}
+	interpreterAssets, err := getInterpreterAsset(src)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get interpreter asset for %q: %v", src, err)
+	}
+	additionalAssets = append(additionalAssets, interpreterAssets...)
 	// HACK! if we are copying libc then try to copy libnss_* libs
 	// (glibc name service switch libs used in networking)
 	if matched, err := filepath.Match("libc.*", filepath.Base(src)); err == nil && matched {
@@ -240,6 +246,37 @@ func getSoLibs(path string) ([]string, error) {
 		}
 	}
 	return assets, nil
+}
+
+func getInterpreterAsset(localAsset string) ([]string, error) {
+	fi, err := os.Stat(localAsset)
+	if err != nil || fi.IsDir() {
+		return nil, err
+	}
+	file, err := os.Open(localAsset)
+	if err != nil {
+		return nil, err
+	}
+	reader := bufio.NewReaderSize(file, 256)
+	shebang, err := reader.Peek(2)
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+	if err != nil || string(shebang) != "#!" {
+		return nil, nil
+	}
+	line, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+	if err != nil {
+		return nil, nil
+	}
+	// TODO: This won't work for paths with spaces, but they are
+	// evil anyway.
+	path := strings.TrimSpace(strings.SplitN(line, " ", 2)[0][2:])
+	Debug("Interpreter path: ", path)
+	return getSymlinkedAssets(path)
 }
 
 // getSymlinkedAssets returns an array of many assets if given path is
