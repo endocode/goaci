@@ -112,13 +112,30 @@ func validateAsset(ACIAsset, localAsset string) error {
 	return fmt.Errorf("Can't handle local asset %v - not a file, not a dir, not a symlink", fi.Name())
 }
 
+type copyingWalkerData struct {
+	src  string
+	dest string
+}
+
 func copyTree(src, dest string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+	data := &copyingWalkerData{
+		src:  src,
+		dest: dest,
+	}
+	err := filepath.Walk(src, getCopyingWalker(data))
+	if err != nil {
+		return nil, fmt.Errorf("Failed to copy %q to %q: %v", src, dest, err)
+	}
+	return nil
+}
+
+func getCopyingWalker(data *copyingWalkerData) func(string, os.FileInfo, error) error {
+	return func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		rootLess := path[len(src):]
-		target := filepath.Join(dest, rootLess)
+		rootLess := path[len(data.src):]
+		target := filepath.Join(data.dest, rootLess)
 		mode := info.Mode()
 		switch {
 		case mode.IsDir():
@@ -138,7 +155,7 @@ func copyTree(src, dest string) error {
 			return fmt.Errorf("Unsupported node %q in assets, only regular files, directories and symlinks are supported.", path, mode.String())
 		}
 		return nil
-	})
+	}
 }
 
 func copyRegularFile(src, dest string) error {
