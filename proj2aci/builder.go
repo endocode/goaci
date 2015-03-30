@@ -28,6 +28,7 @@ type CommonConfiguration struct {
 	ReuseTmpDir string
 	Project     string
 	Excludes    []string
+	PreStart    []string
 }
 
 // CommonPaths keeps some paths common for all builders. Implementers
@@ -259,11 +260,19 @@ func (cmd *Builder) getApp() (*types.App, error) {
 	}
 	exec := []string{filepath.Join(cmd.aciBinDir, binaryName)}
 	config := cmd.custom.GetCommonConfiguration()
+	var handlers []types.EventHandler = nil
+	if config.PreStart != nil {
+		handlers = append(handlers, types.EventHandler{
+			Name: "pre-start",
+			Exec: config.PreStart,
+		})
+	}
 
 	return &types.App{
-		Exec:  append(exec, config.Exec...),
-		User:  "0",
-		Group: "0",
+		Exec:          append(exec, config.Exec...),
+		User:          "0",
+		Group:         "0",
+		EventHandlers: handlers,
 	}, nil
 }
 
